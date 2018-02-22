@@ -27,6 +27,7 @@
 #include "mapper.h"
 #include "mem.h"
 #include "dbopl.h"
+#include "opl2arduino.h"
 
 #include "mame/emu.h"
 #include "mame/fmopl.h"
@@ -805,6 +806,13 @@ Module::Module( Section* configuration ) : Module_base(configuration) {
 		}
 		else {
 			handler = new MAMEOPL3::Handler();
+		}
+	} else if (oplemu == "opl2arduino") {
+		if (oplmode == OPL_opl2) {
+			std::string opl2arduinoport(section->Get_string("opl2arduino"));
+			handler = new OPL2Arduino::Handler(opl2arduinoport);
+		} else {
+			handler = new DBOPL::Handler();
 		}
 	} else {
 		handler = new DBOPL::Handler();

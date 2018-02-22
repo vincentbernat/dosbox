@@ -602,7 +602,7 @@ void DOSBOX_Init(void) {
 	Pstring->Set_values(oplmodes);
 	Pstring->Set_help("Type of OPL emulation. On 'auto' the mode is determined by sblaster type. All OPL modes are Adlib-compatible, except for 'cms'.");
 
-	const char* oplemus[]={ "default", "compat", "fast", "mame", 0};
+	const char* oplemus[]={ "default", "compat", "fast", "mame", "opl2arduino", 0};
 	Pstring = secprop->Add_string("oplemu",Property::Changeable::WhenIdle,"default");
 	Pstring->Set_values(oplemus);
 	Pstring->Set_help("Provider for the OPL emulation. compat might provide better quality (see oplrate as well).");
@@ -610,6 +610,9 @@ void DOSBOX_Init(void) {
 	Pint = secprop->Add_int("oplrate",Property::Changeable::WhenIdle,44100);
 	Pint->Set_values(oplrates);
 	Pint->Set_help("Sample rate of OPL music emulation. Use 49716 for highest quality (set the mixer rate accordingly).");
+
+	Pstring = secprop->Add_string("opl2arduino",Property::Changeable::WhenIdle,"/dev/ttyUSB0");
+	Pstring->Set_help("Path to OPL2 Arduino serial prot");
 
 
 	secprop=control->AddSection_prop("gus",&GUS_Init,true); //done
