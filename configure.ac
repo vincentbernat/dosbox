@@ -373,6 +373,16 @@ else
   AC_MSG_WARN([Can't find libpng, screenshot support disabled])
 fi
 
+AH_TEMPLATE(C_OPL2LPT,[Define to 1 to enable OPL2LPT, requires libieee1284])
+AC_CHECK_HEADER(ieee1284.h,have_ieee1284_h=yes,)
+AC_CHECK_LIB(ieee1284, ieee1284_open, have_ieee1284_lib=yes, ,)
+if test x$have_ieee1284_lib = xyes -a x$have_ieee1284_h = xyes ; then
+  LIBS="$LIBS -lieee1284"
+  AC_DEFINE(C_OPL2LPT,1)
+else
+  AC_MSG_WARN([Can't find libieee1284, OPL2LPT support disabled])
+fi
+
 AH_TEMPLATE(C_MODEM,[Define to 1 to enable internal modem support, requires SDL_net])
 AH_TEMPLATE(C_IPX,[Define to 1 to enable IPX over Internet networking, requires SDL_net])
 AC_CHECK_HEADER(SDL_net.h,have_sdl_net_h=yes,)
