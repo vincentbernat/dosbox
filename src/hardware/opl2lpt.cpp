@@ -87,18 +87,37 @@ static struct parport *opl2lpt_init(std::string name) {
 	return nullptr;
 }
 
+static int opl2lpt_thread(void *ptr) {
+	OPL2LPT::Handler *self = static_cast<OPL2LPT::Handler *>(ptr);
+	self->WriteThread();
+}
+
 namespace OPL2LPT {
 
+	const Bit16u EventQuit = 0x100;
+	const Bit16u EventAddr = 0x200;
+	const Bit16u EventReg  = 0x300;
+
 	void Handler::WriteReg(Bit32u reg, Bit8u val) {
+#if C_DEBUG
 		LOG_MSG("OPL2LPT: cycles %" PRId32 ", on reg 0x%" PRIx32 ", write 0x%" PRIx8,
 			CPU_Cycles, reg, val);
-		opl2lpt_lpt_write(pport, val, C1284_NINIT | C1284_NSELECTIN);
+#endif
+		SDL_LockMutex(lock);
+		eventQueue.push(EventReg | val);
+		SDL_CondSignal(cond);
+		SDL_UnlockMutex(lock);
 	}
 
 	Bit32u Handler::WriteAddr(Bit32u port, Bit8u val) {
+#if C_DEBUG
 		LOG_MSG("OPL2LPT: cycles %" PRId32 ", on port 0x%" PRIx32 ", write 0x%" PRIx8,
 			CPU_Cycles, port, val);
-		opl2lpt_lpt_write(pport, val, C1284_NINIT | C1284_NSTROBE | C1284_NSELECTIN);
+#endif
+		SDL_LockMutex(lock);
+		eventQueue.push(EventAddr | val);
+		SDL_CondSignal(cond);
+		SDL_UnlockMutex(lock);
 		return val;
 	}
 
@@ -108,13 +127,62 @@ namespace OPL2LPT {
 		return;
 	}
 
+	int Handler::WriteThread() {
+		struct parport *pport = opl2lpt_init(pportName);
+		Bit16u event;
+
+		while (true) {
+			SDL_LockMutex(lock);
+			while (eventQueue.empty()) {
+				SDL_CondWait(cond, lock);
+			}
+			event = eventQueue.front();
+			eventQueue.pop();
+			SDL_UnlockMutex(lock);
+
+			if ((event & 0xff00) == EventQuit) {
+				LOG_MSG("OPL2LPT: quit sound thread");
+				break;
+			}
+			switch (event & 0xff00) {
+			case EventAddr:
+				opl2lpt_lpt_write(pport, event & 0xff,
+						  C1284_NINIT | C1284_NSTROBE | C1284_NSELECTIN);
+				usleep(4);
+				break;
+			case EventReg:
+				opl2lpt_lpt_write(pport, event & 0xff,
+						  C1284_NINIT | C1284_NSELECTIN);
+				usleep(23);
+				break;
+			default:
+				LOG_MSG("OPL2LPT: got unknown event 0x%" PRIx16, event);
+			}
+		}
+
+		if (pport) {
+			opl2lpt_reset(pport);
+			opl2lpt_shutdown(pport);
+		}
+		return 0;
+	}
+
 	void Handler::Init(Bitu rate) {
-		pport = opl2lpt_init(pportName);
+		thread = SDL_CreateThread(opl2lpt_thread, this);
+		if (!thread) {
+			LOG_MSG("OPL2LPT: unable to create thread: %s", SDL_GetError());
+		}
+	}
+
+	Handler::Handler(std::string name) : pportName(name), lock(SDL_CreateMutex()), cond(SDL_CreateCond()) {
 	}
 
 	Handler::~Handler() {
-		opl2lpt_reset(pport);
-		opl2lpt_shutdown(pport);
+		SDL_LockMutex(lock);
+		eventQueue.push(EventQuit);
+		SDL_CondSignal(cond);
+		SDL_UnlockMutex(lock);
+		SDL_WaitThread(thread, nullptr);
 	}
 
 };

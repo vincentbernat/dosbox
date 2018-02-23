@@ -1,3 +1,4 @@
+/* -*- c++ -*- */
 /*
  *  Copyright (C) 2002-2017  The DOSBox Team
  *
@@ -18,9 +19,9 @@
 
 #if C_OPL2LPT
 
-#include <ieee1284.h>
-#include <inttypes.h>
+#include <queue>
 
+#include "SDL_thread.h"
 #include "adlib.h"
 #include "dosbox.h"
 
@@ -28,15 +29,20 @@ namespace OPL2LPT {
 
 	struct Handler : public Adlib::Handler {
 	private:
-		struct parport *pport;
 		std::string pportName;
+		/* Thread management for OPL2LPT */
+		SDL_Thread *thread;
+		SDL_mutex *lock;
+		SDL_cond *cond;
+		std::queue<Bit16u> eventQueue;
 
 	public:
 		virtual Bit32u WriteAddr( Bit32u port, Bit8u val );
 		virtual void WriteReg( Bit32u addr, Bit8u val );
 		virtual void Generate( MixerChannel* chan, Bitu samples );
 		virtual void Init( Bitu rate );
-		Handler(std::string name) : pportName(name) {}
+		int WriteThread();
+		explicit Handler(std::string name);
 		~Handler();
 	};
 
