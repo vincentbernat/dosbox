@@ -53,6 +53,13 @@
 #define MAPPERFILE "mapper-" VERSION ".map"
 //#define DISABLE_JOYSTICK
 
+#if C_OPENGLES
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+#include "gles_ctx.h"
+#include "render.h"
+#endif
+
 #if C_OPENGL
 #include "SDL_opengl.h"
 
@@ -131,7 +138,8 @@ enum SCREEN_TYPES	{
 	SCREEN_SURFACE,
 	SCREEN_SURFACE_DDRAW,
 	SCREEN_OVERLAY,
-	SCREEN_OPENGL
+	SCREEN_OPENGL,
+	SCREEN_OPENGLES
 };
 
 enum PRIORITY_LEVELS {
@@ -185,6 +193,13 @@ struct SDL_Block {
 		bool packed_pixel;
 		bool paletted_texture;
 		bool pixel_buffer_object;
+	} opengl;
+#endif
+#if C_OPENGLES
+	struct {
+		Bitu pitch;
+		void * framebuf;
+		bool bilinear;
 	} opengl;
 #endif
 	struct {
@@ -756,6 +771,30 @@ dosurface:
 	break;
 		}//OPENGL
 #endif	//C_OPENGL
+#if C_OPENGLES
+	case SCREEN_OPENGLES:
+	{
+		if (sdl.opengl.framebuf) {
+			free(sdl.opengl.framebuf);
+		}
+		sdl.opengl.framebuf=0;
+		/* We don't need to call GFX_SetupSurfaceScaled() in GLES because we manage screen size 
+		 * and ratio internally on the host-dependant context init function instead.
+		 * All we need to pass to the context init function is the "original/native" resolution. */
+		Bit32u rmask = 0x000000ff;
+		Bit32u gmask = 0x0000ff00;
+		Bit32u bmask = 0x00ff0000;
+		sdl.surface = SDL_CreateRGBSurface(SDL_SWSURFACE, sdl.draw.width, sdl.draw.height, 32, rmask, gmask, bmask, 0);
+		#if C_GLES_RPI
+		pi_gles_init(sdl.draw.width, sdl.draw.height, 32, RENDER_GetAspect());
+		#endif
+		sdl.opengl.framebuf=malloc(width*height*4);		//32 bit color
+		sdl.opengl.pitch=width*4;
+		sdl.desktop.type=SCREEN_OPENGLES;
+		retFlags = GFX_CAN_32 | GFX_SCALING;
+	break;
+		}//OPENGLES
+#endif	//C_OPENGLES
 	default:
 		goto dosurface;
 		break;
@@ -915,6 +954,13 @@ bool GFX_StartUpdate(Bit8u * & pixels,Bitu & pitch) {
 		sdl.updating=true;
 		return true;
 #endif
+#if C_OPENGLES
+	case SCREEN_OPENGLES:
+		pixels=(Bit8u *)sdl.opengl.framebuf;
+		pitch=sdl.opengl.pitch;
+		sdl.updating=true;
+		return true;
+#endif
 	default:
 		break;
 	}
@@ -1020,6 +1066,30 @@ void GFX_EndUpdate( const Bit16u *changedLines ) {
 		}
 		break;
 #endif
+#if C_OPENGLES
+	case SCREEN_OPENGLES:
+		if (changedLines) {
+			Bitu y = 0, index = 0;
+			while (y < sdl.draw.height) {
+				if (!(index & 1)) {
+					y += changedLines[index];
+				} else {
+					Bit8u *pixels = (Bit8u *)sdl.opengl.framebuf + y * sdl.opengl.pitch;
+					Bitu height = changedLines[index];
+					glTexSubImage2D(GL_TEXTURE_2D, 0, 0, y,
+						sdl.draw.width, height, GL_BGRA_EXT, 
+						GL_UNSIGNED_BYTE, pixels);
+					y += height;
+				}
+				index++;
+			}
+			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+			#if C_GLES_RPI
+			pi_gles_videoflip();
+			#endif
+		}
+		break;
+#endif
 	default:
 		break;
 	}
@@ -1059,7 +1129,13 @@ Bitu GFX_GetRGB(Bit8u red,Bit8u green,Bit8u blue) {
 //		return ((red << 0) | (green << 8) | (blue << 16)) | (255 << 24);
 		//USE BGRA
 		return ((blue << 0) | (green << 8) | (red << 16)) | (255 << 24);
+#if C_OPENGLES
+	case SCREEN_OPENGLES:
+		//USE BGRA
+		return ((blue << 0) | (green << 8) | (red << 16)) | (255 << 24);
+#endif
 	}
+
 	return 0;
 }
 
@@ -1287,6 +1363,11 @@ static void GUI_StartUp(Section * sec) {
 		sdl.desktop.want_type=SCREEN_OPENGL;
 		sdl.opengl.bilinear=false;
 #endif
+#if C_OPENGLES
+	} else if (output == "opengles") {
+		sdl.desktop.want_type=SCREEN_OPENGLES;
+		sdl.opengl.bilinear=true;
+#endif
 	} else {
 		LOG_MSG("SDL: Unsupported output device %s, switching back to surface",output.c_str());
 		sdl.desktop.want_type=SCREEN_SURFACE;//SHOULDN'T BE POSSIBLE anymore
@@ -1325,6 +1406,19 @@ static void GUI_StartUp(Section * sec) {
 	} /* OPENGL is requested end */
 
 #endif	//OPENGL
+#if C_OPENGLES
+   if(sdl.desktop.want_type==SCREEN_OPENGLES){ /* OPENGLES is requested */
+	sdl.opengl.framebuf=0;
+   	/*  Hack to make controls work when using SDL1.x + GLES (Raspberry PI, etc.)
+	 *  Passed dimensions may have to be modified if mouse coord errors arise.
+	 *  Surface SDL 1.x is broken on recent Raspberry Pi legacy fbdev implementation.
+	 *  No need to initialize handlers later on this function or setting window caption because
+	 *  we're always fullscreen when using GLES, so we return after SDL_SetVideoMode(). 
+	 */
+	SDL_SetVideoMode(640,400,0,0);
+	return;
+   }	
+#endif	//OPENGLES
 	/* Initialize screen for first time */
 	sdl.surface=SDL_SetVideoMode_Wrap(640,400,0,0);
 	if (sdl.surface == NULL) E_Exit("Could not initialize video: %s",SDL_GetError());
@@ -1681,6 +1775,9 @@ void Config_Add_SDL() {
 #if C_OPENGL
 		"opengl", "openglnb",
 #endif
+#if C_OPENGLES
+		"opengles",
+#endif
 #if C_DDRAW
 		"ddraw",
 #endif
@@ -1797,6 +1894,12 @@ void restart_program(std::vector<std::string> & parameters) {
 	SDL_CloseAudio();
 	SDL_Delay(50);
 	SDL_Quit();
+#if C_OPENGLES
+#if C_GLES_RPI
+	// shutdown Raspberry Pi GLES stuff (dispmanx, egl context, etc)
+	pi_gles_deinit();
+#endif
+#endif
 #if C_DEBUG
 	// shutdown curses
 	DEBUG_ShutDown(NULL);

@@ -269,6 +269,12 @@ static void RENDER_Reset( void ) {
 	Bitu gfx_flags, xscale, yscale;
 	ScalerSimpleBlock_t		*simpleBlock = &ScaleNormal1x;
 	ScalerComplexBlock_t	*complexBlock = 0;
+#if C_OPENGLES   // Scaling and aspect ratio is handled internally when using GLES
+	gfx_scalew = 1;
+	gfx_scaleh = 1;
+	dblh = 0;
+	dblw = 0;
+#else
 	if (render.aspect) {
 		if (render.src.ratio>1.0) {
 			gfx_scalew = 1;
@@ -281,6 +287,7 @@ static void RENDER_Reset( void ) {
 		gfx_scalew = 1;
 		gfx_scaleh = 1;
 	}
+#endif
 	if ((dblh && dblw) || (render.scale.forced && !dblh && !dblw)) {
 		/* Initialize always working defaults */
 		if (render.scale.size == 2)
@@ -631,3 +638,8 @@ void RENDER_Init(Section * sec) {
 	GFX_SetTitle(-1,render.frameskip.max,false);
 }
 
+// This function is needed by the GLES2 render code where aspect is managed internally, and thus we need
+// the aspect variable to be accessed from sdlmain.cpp to be passed to de gles init function.
+bool RENDER_GetAspect() {
+	return render.aspect;
+}

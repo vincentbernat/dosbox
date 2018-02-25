@@ -408,6 +408,40 @@ else
    AC_MSG_RESULT(no)
 fi
 
+AC_ARG_ENABLE(opengles,AC_HELP_STRING([--disable-opengles],[Disable opengl_es support]),,enable_opengles=yes)
+if test x$enable_opengles = xyes; then
+	AH_TEMPLATE(C_OPENGLES,[Define to 1 to use opengl_es display output support])
+	AH_TEMPLATE(C_GLES_RPI,[Define to 1 to use Raspbery Pi EGL context])
+	AH_TEMPLATE(C_GLES_X11,[Define to 1 to use X11 EGL context])
+	AH_TEMPLATE(C_DYNREC,[Define to 1 to use dynamic recompiler])
+	AH_TEMPLATE(C_TARGETCPU,[Define to ARMV4LE for Rpi dynamic recompiler and ARMV7LE for Rpi2])
+	AH_TEMPLATE(C_UNALIGNED_MEMORY,[Define to 1 to use unaligned memory access on ARM])
+	if grep -q BCM270 /proc/cpuinfo; then
+		CPPFLAGS="$CPPFLAGS -I/opt/vc/include -I/opt/vc/include/interface/vmcs_host/linux/ -I/opt/vc/include/interface/vcos/pthreads"
+        	LIBS="$LIBS -L/opt/vc/lib -lbcm_host -lvcos -lvchiq_arm"
+		AC_DEFINE(C_DYNREC,1)
+		if grep -q BCM2708 /proc/cpuinfo; then
+			AC_DEFINE(C_TARGETCPU,ARMV4LE)
+		fi
+		if grep -q BCM2709 /proc/cpuinfo; then
+			AC_DEFINE(C_TARGETCPU,ARMV7LE)
+		fi
+		AC_DEFINE(C_UNALIGNED_MEMORY,1)
+	fi
+	
+	AC_CHECK_LIB(GLESv2, main, have_gles_lib=yes, have_gles_lib=no , )
+	AC_CHECK_HEADER(GLES2/gl2.h, have_gl2_h=yes , have_gl2_h=no , )
+	AC_MSG_CHECKING(whether opengl_es display output will be enabled) 
+	if test x$have_gl2_h = xyes -a x$have_gles_lib = xyes ; then 
+		AC_DEFINE(C_GLES_RPI,1)
+	  	AC_DEFINE(C_OPENGLES,1)
+	  	LIBS="$LIBS -lEGL -lGLESv2"
+          	AC_MSG_RESULT(yes)
+	else
+		AC_MSG_RESULT(no)
+	fi
+fi
+
 AH_TEMPLATE(C_OPENGL,[Define to 1 to use opengl display output support])
 AC_CHECK_LIB(GL, main, have_gl_lib=yes, have_gl_lib=no , )
 AC_CHECK_LIB(opengl32, main, have_opengl32_lib=yes,have_opengl32_lib=no , )
