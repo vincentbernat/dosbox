@@ -30,6 +30,7 @@ namespace OPL2LPT {
 	struct Handler : public Adlib::Handler {
 	private:
 		std::string pportName;
+		Adlib::Mode mode;
 		/* Thread management for OPL2LPT */
 		SDL_Thread *thread;
 		SDL_mutex *lock;
@@ -42,7 +43,7 @@ namespace OPL2LPT {
 		virtual void Generate( MixerChannel* chan, Bitu samples );
 		virtual void Init( Bitu rate );
 		int WriteThread();
-		explicit Handler(std::string name);
+		explicit Handler(std::string name, Adlib::Mode mode);
 		~Handler();
 	};
 

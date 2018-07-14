@@ -811,7 +811,17 @@ Module::Module( Section* configuration ) : Module_base(configuration) {
 	} else if (oplemu == "opl2lpt") {
 		if (oplmode == OPL_opl2) {
 			std::string opl2lptport(section->Get_string("opl2lpt"));
-			handler = new OPL2LPT::Handler(opl2lptport);
+			handler = new OPL2LPT::Handler(opl2lptport, Adlib::MODE_OPL2);
+		} else {
+			handler = new DBOPL::Handler();
+		}
+	} else if (oplemu == "opl3lpt") {
+		if (oplmode == OPL_opl3) {
+			// We don't handle OPL2 with OPL3LPT (mostly
+			// to not have an additional variable for the
+			// kind of physical chip we drive).
+			std::string opl2lptport(section->Get_string("opl2lpt"));
+			handler = new OPL2LPT::Handler(opl2lptport, Adlib::MODE_OPL3);
 		} else {
 			handler = new DBOPL::Handler();
 		}

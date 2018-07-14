@@ -44,17 +44,23 @@ static void opl2lpt_lpt_write(struct parport *pport, Bit8u d, Bit8u c) {
 	}
 }
 
-static void opl2lpt_reset(struct parport *pport) {
-	LOG_MSG("OPL2LPT: reset OPL2 chip");
-	for(int i = 0; i < 256; i ++) {
+static void opl2lpt_reset(struct parport *pport, Adlib::Mode mode) {
+	LOG_MSG("OPL2LPT: reset %s chip", mode == Adlib::MODE_OPL2 ? "OPL2" : "OPL3");
+	for (int i = 0; i < 256; i ++) {
 		opl2lpt_lpt_write(pport, i, C1284_NINIT | C1284_NSTROBE | C1284_NSELECTIN);
-		usleep(4);
+		if (mode == Adlib::MODE_OPL2) usleep(4);
 		opl2lpt_lpt_write(pport, 0, C1284_NINIT | C1284_NSELECTIN);
-		usleep(23);
+		if (mode == Adlib::MODE_OPL2) usleep(23);
+	}
+	if (mode == Adlib::MODE_OPL3) {
+		for (int i = 0; i < 256; i ++) {
+			opl2lpt_lpt_write(pport, i, C1284_NINIT | C1284_NSTROBE);
+			opl2lpt_lpt_write(pport, 0, C1284_NINIT | C1284_NSELECTIN);
+		}
 	}
 }
 
-static struct parport *opl2lpt_init(std::string name) {
+static struct parport *opl2lpt_init(std::string name, Adlib::Mode mode) {
 	struct parport_list parports = {};
 	struct parport *pport;
 
@@ -76,7 +82,7 @@ static struct parport *opl2lpt_init(std::string name) {
 				ieee1284_close(pport);
 				continue;
 			}
-			opl2lpt_reset(pport);
+			opl2lpt_reset(pport, mode);
 			LOG_MSG("OPL2LPT: found parallel port %s", pport->name);
 			ieee1284_free_ports(&parports);
 			return pport;
@@ -94,9 +100,9 @@ static int opl2lpt_thread(void *ptr) {
 
 namespace OPL2LPT {
 
-	const Bit16u EventQuit = 0x100;
-	const Bit16u EventAddr = 0x200;
-	const Bit16u EventReg  = 0x300;
+	const Bit16u EventQuit = 0x1000;
+	const Bit16u EventAddr = 0x2000;
+	const Bit16u EventReg  = 0x3000;
 
 	void Handler::WriteReg(Bit32u reg, Bit8u val) {
 #if C_DEBUG
@@ -114,6 +120,7 @@ namespace OPL2LPT {
 		LOG_MSG("OPL2LPT: cycles %" PRId32 ", on port 0x%" PRIx32 ", write 0x%" PRIx8,
 			CPU_Cycles, port, val);
 #endif
+		val |= ((port << 7) & 0x100);
 		SDL_LockMutex(lock);
 		eventQueue.push(EventAddr | val);
 		SDL_CondSignal(cond);
@@ -128,7 +135,7 @@ namespace OPL2LPT {
 	}
 
 	int Handler::WriteThread() {
-		struct parport *pport = opl2lpt_init(pportName);
+		struct parport *pport = opl2lpt_init(pportName, mode);
 		Bit16u event;
 
 		while (true) {
@@ -140,20 +147,24 @@ namespace OPL2LPT {
 			eventQueue.pop();
 			SDL_UnlockMutex(lock);
 
-			if ((event & 0xff00) == EventQuit) {
+			if ((event & 0xf000) == EventQuit) {
 				LOG_MSG("OPL2LPT: quit sound thread");
 				break;
 			}
-			switch (event & 0xff00) {
+			switch (event & 0xf000) {
 			case EventAddr:
-				opl2lpt_lpt_write(pport, event & 0xff,
-						  C1284_NINIT | C1284_NSTROBE | C1284_NSELECTIN);
-				usleep(4);
+				if (event & 0xfff < 0x100)
+					opl2lpt_lpt_write(pport, event & 0xff,
+							  C1284_NINIT | C1284_NSTROBE | C1284_NSELECTIN);
+				else if (mode == Adlib::MODE_OPL3)
+					opl2lpt_lpt_write(pport, event & 0xff,
+							  C1284_NINIT | C1284_NSTROBE);
+				if (mode == Adlib::MODE_OPL2) usleep(4);
 				break;
 			case EventReg:
 				opl2lpt_lpt_write(pport, event & 0xff,
 						  C1284_NINIT | C1284_NSELECTIN);
-				usleep(23);
+				if (mode == Adlib::MODE_OPL2) usleep(23);
 				break;
 			default:
 				LOG_MSG("OPL2LPT: got unknown event 0x%" PRIx16, event);
@@ -161,7 +172,7 @@ namespace OPL2LPT {
 		}
 
 		if (pport) {
-			opl2lpt_reset(pport);
+			opl2lpt_reset(pport, mode);
 			opl2lpt_shutdown(pport);
 		}
 		return 0;
@@ -174,7 +185,7 @@ namespace OPL2LPT {
 		}
 	}
 
-	Handler::Handler(std::string name) : pportName(name), lock(SDL_CreateMutex()), cond(SDL_CreateCond()) {
+	Handler::Handler(std::string name, Adlib::Mode mode) : pportName(name), mode(mode), lock(SDL_CreateMutex()), cond(SDL_CreateCond()) {
 	}
 
 	Handler::~Handler() {
